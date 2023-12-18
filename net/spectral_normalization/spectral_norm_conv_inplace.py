@@ -181,11 +181,18 @@ class SpectralNormConvLoadStateDictPreHook(object):
         version = local_metadata.get("spectral_norm_conv", {}).get(fn.name + ".version", None)
         if version is None or version < 1:
             with torch.no_grad():
+                print("state_dict: ", state_dict)
+                print("prefix: ", prefix)
+                prefix = prefix.replace("module.", "")
+                print("new prefix: ", prefix)
                 weight_orig = state_dict[prefix + fn.name + "_orig"]
+                # weight_orig = state_dict[fn.name + "_orig"]
                 weight = state_dict.pop(prefix + fn.name)
+                # weight = state_dict.pop(fn.name)
                 sigma = (weight_orig / weight).mean()
                 weight_mat = fn.reshape_weight_to_matrix(weight_orig)
                 u = state_dict[prefix + fn.name + "_u"]
+                # u = state_dict[fn.name + "_u"]
 
 
 class SpectralNormConvStateDictHook(object):

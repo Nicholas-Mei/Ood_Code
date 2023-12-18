@@ -1,3 +1,5 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import torch
 import argparse
 import torchvision
@@ -12,16 +14,24 @@ from utils.dataloader.nus_wide_loader import *
 from utils.dataloader.coco_loader import *
 from utils import anom_utils
 
+# Import network models
+from net.lenet import lenet
+from net.resnet import resnet18, resnet50, resnet101
+from net.wide_resnet import wrn
+from net.vgg import vgg16
+
 def evaluation():
     print("In-dis data: "+args.dataset)
     print("Out-dis data: " + args.ood_data)
-    torch.manual_seed(0)
-    np.random.seed(0)
+    # torch.manual_seed(0)
+    torch.manual_seed(1)
+    # np.random.seed(0)
     ###################### Setup Dataloader ######################
     normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     img_transform = torchvision.transforms.Compose([
-        torchvision.transforms.Resize((256, 256)),
+        # torchvision.transforms.Resize((256, 256)),
+        torchvision.transforms.Resize((32, 32)),
         torchvision.transforms.ToTensor(),
         normalize,
     ])
@@ -30,11 +40,11 @@ def evaluation():
     ])
     # in_dis
     if args.dataset == 'pascal':
-        train_data = pascalVOCLoader('./datasets/pascal/',
+        train_data = pascalVOCLoader('./Pascal/',
                                      img_transform=img_transform, label_transform=label_transform)
-        test_data = pascalVOCLoader('./datasets/pascal/', split="voc12-test",
+        test_data = pascalVOCLoader('./Pascal/', split="voc12-test",
                                     img_transform=img_transform, label_transform=None)
-        val_data = pascalVOCLoader('./datasets/pascal/', split="voc12-val",
+        val_data = pascalVOCLoader('./Pascal/', split="voc12-val",
                                    img_transform=img_transform, label_transform=label_transform)
 
     elif args.dataset == 'coco':
@@ -67,7 +77,7 @@ def evaluation():
             ood_root = "/nobackup-slow/dataset/nus-ood/"
             out_test_data = torchvision.datasets.ImageFolder(ood_root, transform=img_transform)
         else:
-            ood_root = "/nobackup-slow/dataset/ImageNet22k/ImageNet-22K"
+            ood_root = "./ImageNet-22K"
             out_test_data = torchvision.datasets.ImageFolder(ood_root, transform=img_transform)
     elif args.ood_data == "texture":
         ood_root = "/nobackup-slow/dataset/dtd/images/"
@@ -95,16 +105,32 @@ def evaluation():
         features = list(orig_densenet.features)
         model = nn.Sequential(*features, nn.ReLU(inplace=True))
         clsfier = clssimp(1024, args.n_classes)
+    elif args.arch == "n_resnet101":
+        model = resnet101(
+            spectral_normalization=args.sn,
+            mod=args.mod,
+            coeff=args.coeff,
+            num_classes=args.n_classes,
+            mnist="mnist" in args.dataset,
+        )
+        clsfier = clssimp(2048, args.n_classes)
+
 
     model = model.cuda()
     clsfier = clsfier.cuda()
-    if torch.cuda.device_count() > 1:
+    if torch.cuda.device_count() >= 1:
         print("Using",torch.cuda.device_count(), "GPUs!")
         model = nn.DataParallel(model)
         clsfier = nn.DataParallel(clsfier)
 
-    model.load_state_dict(torch.load(args.load_model + args.arch + '.pth'))
-    clsfier.load_state_dict(torch.load(args.load_model + args.arch + 'clssegsimp.pth'))
+    ###################### Modified Prefix ######################
+
+    model_state_dict = torch.load(args.load_model + args.arch + '.pth')
+    clsfier_state_dict = torch.load(args.load_model + args.arch + 'clsfier.pth')
+
+    model.load_state_dict(model_state_dict, strict=False)
+    # clsfier.load_state_dict(torch.load(args.load_model + args.arch + 'clssegsimp.pth'))
+    clsfier.load_state_dict(clsfier_state_dict, strict=False)
     print("model loaded!")
 
     # freeze the batchnorm and dropout layers
@@ -171,17 +197,31 @@ if __name__ == '__main__':
     parser.add_argument('--ood_data', type=str, default='imagenet')
     parser.add_argument('--arch', type=str, default='densenet',
                         help='Architecture to use densenet|resnet101')
-    parser.add_argument('--batch_size', type=int, default=200, help='Batch Size')
+    parser.add_argument('--batch_size', type=int, default=100, help='Batch Size')
     parser.add_argument('--n_classes', type=int, default=20, help='# of classes')
+
+    # DDU methods    
+    parser.add_argument(
+        "-sn", action="store_true", dest="sn", help="whether to use spectral normalisation during training",
+    )
+    parser.set_defaults(sn=False)
+    parser.add_argument(
+        "--coeff", type=float, default=3.0, dest="coeff", help="Coeff parameter for spectral normalisation",
+    )
+    parser.add_argument(
+        "-mod", action="store_true", dest="mod", help="whether to use architectural modifications during training",
+    )
+    parser.set_defaults(mod=False)
+
     # save and load
     parser.add_argument('--save_path', type=str, default="./logits/", help="save the logits")
-    parser.add_argument('--load_model', type=str, default="./saved_models/",
+    parser.add_argument('--load_model', type=str, default="/data2/myh/ood/model_voc_res101/pascal/",
                         help='Path to load models')
     # input pre-processing
     parser.add_argument('--T', type=int, default=1)
     parser.add_argument('--noise', type=float, default=0.0)
     args = parser.parse_args()
-    args.load_model += args.dataset + '/'
+    # args.load_model += args.dataset + '/'
 
     args.save_path += args.dataset + '/' + args.ood_data + '/' + args.arch + '/'
     evaluation()

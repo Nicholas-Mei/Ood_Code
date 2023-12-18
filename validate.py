@@ -1,3 +1,5 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import torch
 import argparse
 import torchvision
@@ -13,6 +15,12 @@ from utils.dataloader.pascal_voc_loader import *
 from utils.anom_utils import ToLabel
 
 from model.classifiersimple import *
+
+# Import network models
+from net.lenet import lenet
+from net.resnet import resnet18, resnet50, resnet101
+from net.wide_resnet import wrn
+from net.vgg import vgg16
 
 print("Using", torch.cuda.device_count(), "GPUs")
 def validate(args, model, clsfier, val_loader):
@@ -72,7 +80,7 @@ if __name__ == '__main__':
     ])
 
     if args.dataset == 'pascal':
-        loader = pascalVOCLoader('./datasets/pascal/', split="voc12-val",
+        loader = pascalVOCLoader('./Pascal/', split="voc12-val",
                                  img_transform=img_transform,
                                  label_transform=label_transform)
     elif args.dataset == 'coco':
@@ -100,6 +108,17 @@ if __name__ == '__main__':
         features = list(orig_densenet.features)
         model = nn.Sequential(*features, nn.ReLU(inplace=True))
         clsfier = clssimp(1024, args.n_classes)
+    
+    elif args.arch == "n_resnet101":
+        model = resnet101(
+            spectral_normalization=args.sn,
+            mod=args.mod,
+            coeff=args.coeff,
+            num_classes=args.n_classes,
+            mnist="mnist" in args.dataset,
+        )
+        clsfier = clssimp(2048, args.n_classes)
+
 
     model.load_state_dict(torch.load(args.load_path + args.dataset + '/' +
                                      args.arch + ".pth", map_location="cpu"))
