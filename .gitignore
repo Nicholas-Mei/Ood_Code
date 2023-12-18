@@ -1,3 +1,5 @@
 ImageNet-22K/
 
 Pascal/VOCdevkit/
+
+eval_res_voc.log
